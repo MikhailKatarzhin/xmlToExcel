@@ -8,6 +8,7 @@ import zipfile
 def download_file(link, path):
     resp = requests.get(link, stream=True, verify=False)
     total = int(resp.headers.get('content-length', 0))
+    # os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as file, tqdm(
             desc=path,
             total=total,
@@ -21,19 +22,19 @@ def download_file(link, path):
 
 
 def download_list():
-    url_list = "https://proverki.gov.ru/blob/opendata/list.xml"
+    url_list = "https://proverki.gov.ru/blob/erknm-opendata/list.xml"
     path_list = "./downloads/list/list.xml"
     download_file(url_list, path_list)
 
 
-def download_file_xml(file_name):
+def download_file_xml_inspection_versions(file_name):
     file_link = f'https://proverki.gov.ru/blob/erknm-opendata/7710146102-{file_name}.xml'
-    file_path = f'./downloads/xmls/{file_name}.xml'
+    file_path = f'./downloads/inspection_versions/{file_name}.xml'
     download_file(file_link, file_path)
 
 
-def parse_inspection_to_url_last_zip(file_name):
-    root_node = ElementTree.parse(f'./downloads/xmls/{file_name}.xml').getroot()
+def parse_inspection_versions_to_url_last_zip(file_name):
+    root_node = ElementTree.parse(f'./downloads/inspection_versions/{file_name}.xml').getroot()
     list_source = root_node.findall('data/dataversion/source')
     element = list_source[-1]
     last_url = element.text
@@ -41,9 +42,8 @@ def parse_inspection_to_url_last_zip(file_name):
 
 
 def download_file_inspection_zip(file_name):
-    link = parse_inspection_to_url_last_zip(file_name)
+    link = parse_inspection_versions_to_url_last_zip(file_name)
     path_zips = f'./downloads/zips/{file_name}.zip'
-    print(path_zips)
     download_file(link, path_zips)
 
 
@@ -60,7 +60,7 @@ def download_and_unzip_inspection_zip(file_name):
 
 
 def download_and_unzip_inspection(file_name):
-    download_file_xml(file_name)
+    download_file_xml_inspection_versions(file_name)
     download_and_unzip_inspection_zip(file_name)
 
 
@@ -120,13 +120,26 @@ def get_inspection_structure():
     }
 
 
+gets_header_structure_functions = {
+    'INSPECTION': get_inspection_structure()
+}
+
+
+def get_element_structure_by_tag(tag):
+    return gets_header_structure_functions[tag]
+
+
+def get_element_structure(element):
+    return get_element_structure_by_tag(tag_without_namespace(element.tag))
+
+
 def get_element_attribute_values_for_csv(element):
-    inspection = get_inspection_structure()
+    element_structure = get_element_structure(element)
     out_string = ''
     for item in element.items():
-        inspection[get_attribute_key(item)] = get_attribute_value(item)
-    for entry in inspection:
-        out_string = f'{out_string};{inspection[entry]}'
+        element_structure[get_attribute_key(item)] = get_attribute_value(item)
+    for entry in element_structure:
+        out_string = f'{out_string};{element_structure[entry]}'
 
     return out_string
 
@@ -134,8 +147,25 @@ def get_element_attribute_values_for_csv(element):
 def get_header_inspection_for_csv():
     out_string = ''
     for entry in get_inspection_structure():
-        out_string = f'{out_string};{entry}'
+        out_string = f'{out_string};Inspection_{entry}'
     return out_string
+
+
+def get_element_header_for_csv_by_tag(tag):
+    out_string = ''
+    for entry in get_element_structure_by_tag(tag):
+        out_string = f'{out_string};{tag}_{entry}'
+    return out_string
+
+
+def get_element_header_for_csv(element):
+    return get_element_header_for_csv_by_tag(tag_without_namespace(element.tag))
+
+
+def get_header_for_csv_by_root_node(root_node):
+    header = 'ID'
+    header = f'{header}{get_element_header_for_csv(root_node[0])}'
+    return header
 
 
 def get_header_for_csv():
@@ -145,12 +175,14 @@ def get_header_for_csv():
 
 
 def parse_inspection_xml_to_csv(dir_name):
-    file_name = os.listdir(f'./downloads/unzips/{dir_name}')[0]
+    file_name = os.listdir(f'./downloads/unzips/{dir_name}')[-1]
     root_node = ElementTree.parse(f'./downloads/unzips/{dir_name}/{file_name}').getroot()
     id = 1
 
+    """with open(f'./csvs/{dir_name}.csv', 'w') as the_file:
+        the_file.write(f'{get_header_for_csv()}\n')"""
     with open(f'./csvs/{dir_name}.csv', 'w') as the_file:
-        the_file.write(f'{get_header_for_csv()}\n')
+        the_file.write(f'{get_header_for_csv_by_root_node(root_node)}\n')
     for inspection in root_node:
         line = f'{id}{get_element_attribute_values_for_csv(inspection)}'
         with open(f'./csvs/{dir_name}.csv', 'a') as the_file:
@@ -165,6 +197,6 @@ if __name__ == '__main__':
     file_name = f'{file_type_inspection}-{year}'
     if month != "":
         file_name = f'{file_name}-{month}'
-    # download_list()
-    # download_and_unzip_inspection(file_name)
+    download_list()
+    download_and_unzip_inspection(file_name)
     parse_inspection_xml_to_csv(file_name)
